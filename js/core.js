@@ -1588,6 +1588,9 @@ if (!isBatchMode && type === 'normal') {
             ro.observe(inputArea);
         })();
 
+        // 常用简体汉字库与随机取字函数已独立封装到 common-chars.js
+        // （通过 <script> 在 core.js 之前引入，运行时以 window.COMMON_CHARS_3500 / window.genRandomCharPhrase 提供）
+
         window.simulateReply = function() {
             function showTypingIndicator() {
                 if (!settings.typingIndicatorEnabled) return;
@@ -1665,30 +1668,41 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
 
             // 确认有可用回复后再展示“正在输入中”，避免空转
             showTypingIndicator();
-            let delay = 0;
             const recentUserMsgs = settings.replyEnabled
                 ? messages.filter(m => m.sender === 'user' && m.text).slice(-10)
                 : [];
-            for (let i = 0; i < replyCount; i++) {
-                const delayRange = settings.replyDelayMax - settings.replyDelayMin;
-                delay += settings.replyDelayMin + Math.random() * delayRange;
-                setTimeout(() => {
-                    try {
-                    const replyPool = replyPoolOnce;
-                    // 被屏蔽或无效项直接换下一个，尽量保证每次都产出可用回复
-                    let replyText = '';
-                    for (let t = 0; t < 6; t++) {
-                        const picked = replyPool[Math.floor(Math.random() * replyPool.length)];
-                        if (picked && String(picked).trim()) {
-                            replyText = String(picked).trim();
-                            break;
-                        }
-                    }
-                    if (!replyText && i === replyCount - 1) {
-                        (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
-                        return;
-                    }
 
+            // ── 从回复池中随机抽取 1~3 条【互不重复】的句子，合并为一条消息，用 '/' 拼接 ──
+            const pickUniqueReplies = (pool, count) => {
+                const shuffled = pool.slice().sort(() => Math.random() - 0.5);
+                const picked = [];
+                const seen = new Set();
+                for (const item of shuffled) {
+                    if (picked.length >= count) break;
+                    if (!seen.has(item)) {
+                        seen.add(item);
+                        picked.push(item);
+                    }
+                }
+                return picked;
+            };
+            const pickedReplies = pickUniqueReplies(replyPoolOnce, replyCount);
+
+            // ── 除本地字卡库外，同时随机附加 0~10 个常用简体汉字组成的字符短句（同样用 '/' 拼接）──
+            const charPhrase = genRandomCharPhrase(COMMON_CHARS_3500);
+            if (charPhrase) pickedReplies.push(charPhrase);
+
+            if (!pickedReplies.length) {
+                (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
+                return;
+            }
+            const replyText = pickedReplies.join(' / ');
+
+            const delayRange = settings.replyDelayMax - settings.replyDelayMin;
+            const delay = settings.replyDelayMin + Math.random() * delayRange;
+
+            setTimeout(() => {
+                try {
                     let disabledStickerItems = new Set();
                     try {
                         const raw = localStorage.getItem('disabledStickerItems');
@@ -1711,14 +1725,14 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                     }
 
                     addMessage({
-                        id: Date.now() + i,
+                        id: Date.now(),
                         sender: settings.partnerName || '对方',
                         text: finalText,
                         timestamp: new Date(),
                         status: 'received',
                         favorited: false,
                         note: null,
-                        replyTo: (i === 0 && recentUserMsgs.length > 0 && Math.random() < 0.3)
+                        replyTo: (recentUserMsgs.length > 0 && Math.random() < 0.3)
                             ? (function(){ const m = recentUserMsgs[Math.floor(Math.random() * recentUserMsgs.length)]; return { id: m.id, text: m.text, sender: m.sender }; })()
                             : null,
                         type: 'normal'
@@ -1732,7 +1746,7 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                         const randomSticker = enabledStickerPool[Math.floor(Math.random() * enabledStickerPool.length)];
                         setTimeout(() => {
                             addMessage({
-                                id: Date.now() + i + 2000,
+                                id: Date.now() + 2000,
                                 sender: settings.partnerName || '对方',
                                 text: '',
                                 timestamp: new Date(),
@@ -1752,7 +1766,7 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                     if (separateEmoji) {
                         setTimeout(() => {
                             addMessage({
-                                id: Date.now() + i + 1000,
+                                id: Date.now() + 1000,
                                 sender: settings.partnerName || '对方',
                                 text: separateEmoji,
                                 timestamp: new Date(),
@@ -1765,42 +1779,39 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                         }, 300 + Math.random() * 400);
                     }
 
-                    if (i === replyCount - 1) {
-                        (function() {
-                            try {
-                                if (window._typingIndicatorAutoHideTimer) {
-                                    clearTimeout(window._typingIndicatorAutoHideTimer);
-                                    window._typingIndicatorAutoHideTimer = null;
-                                }
-                            } catch (e) {}
-                            var _tiW = document.getElementById('typing-indicator-wrapper');
-                            if (_tiW) {
-                                var _tiInner = _tiW.querySelector('.typing-indicator');
-                                if (_tiInner) {
-                                    _tiInner.classList.add('hiding');
-                                    setTimeout(function() {
-                                        _tiW.style.display = 'none';
-                                        if (_tiInner) _tiInner.classList.remove('hiding');
-                                    }, 240);
-                                } else {
-                                    _tiW.style.display = 'none';
-                                }
-                            }
-                        })();
-                    }
-                    } catch (e) {
-                        console.error('[simulateReply] 渲染/回填出错:', e);
-                        // 机制性兜底：出错时至少让“正在输入中”消失，避免假死
+                    (function() {
                         try {
-                            (function(){
-                                try { if (window._typingIndicatorAutoHideTimer) { clearTimeout(window._typingIndicatorAutoHideTimer); window._typingIndicatorAutoHideTimer = null; } } catch (e2) {}
-                                var _tiW2 = document.getElementById('typing-indicator-wrapper');
-                                if (_tiW2) _tiW2.style.display = 'none';
-                            })();
-                        } catch (e2) {}
-                    }
-                }, delay);
-            }
+                            if (window._typingIndicatorAutoHideTimer) {
+                                clearTimeout(window._typingIndicatorAutoHideTimer);
+                                window._typingIndicatorAutoHideTimer = null;
+                            }
+                        } catch (e) {}
+                        var _tiW = document.getElementById('typing-indicator-wrapper');
+                        if (_tiW) {
+                            var _tiInner = _tiW.querySelector('.typing-indicator');
+                            if (_tiInner) {
+                                _tiInner.classList.add('hiding');
+                                setTimeout(function() {
+                                    _tiW.style.display = 'none';
+                                    if (_tiInner) _tiInner.classList.remove('hiding');
+                                }, 240);
+                            } else {
+                                _tiW.style.display = 'none';
+                            }
+                        }
+                    })();
+                } catch (e) {
+                    console.error('[simulateReply] 渲染/回填出错:', e);
+                    // 机制性兜底：出错时至少让“正在输入中”消失，避免假死
+                    try {
+                        (function(){
+                            try { if (window._typingIndicatorAutoHideTimer) { clearTimeout(window._typingIndicatorAutoHideTimer); window._typingIndicatorAutoHideTimer = null; } } catch (e2) {}
+                            var _tiW2 = document.getElementById('typing-indicator-wrapper');
+                            if (_tiW2) _tiW2.style.display = 'none';
+                        })();
+                    } catch (e2) {}
+                }
+            }, delay);
         }
 
 function showModal(modalElement, focusElement = null) {
